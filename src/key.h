@@ -204,6 +204,25 @@ public:
                                        const EllSwiftPubKey& our_ellswift,
                                        bool initiating) const;
 };
+/**
+ * @brief Computes the tap'tweaked key from the given internal key and merkle root, according to BIP341.
+ *
+ * The function tweaks a taproot internal key and returns a tweaked key, applying different logic based
+ * on the state of the provided merkle_root:
+ *
+ * - If merkle_root->IsNull() is true, the function computes a tweak key using just the hash of the public key
+ *   derived from the internal key (used for key path spending without scripts).
+ * - Otherwise, it computes a tweak using the hash of the public key concatenated with the merkle_root
+ *   (used for key path spending with a specific script tree).
+ *
+ * @param  internal_key The taproot internal key.
+ * @param  merkle_root The merkle root of the tree of scripts. If merkle_root->IsNull(),
+ *         the output does not commit to any scripts and the key is tweaked with the hash of the
+ *         internal key public key (following BIP341's recommendation).
+ * @param  tweaked_key The resulting tap'tweaked key.
+ * @return Returns true if the tap'tweaked key was successfully computed, false otherwise.
+ */
+bool ComputeTapTweak(const CKey& internal_key, const uint256& merkle_root, CKey& tweaked_key);
 
 CKey GenerateRandomKey(bool compressed = true) noexcept;
 

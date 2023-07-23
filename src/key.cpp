@@ -275,20 +275,51 @@ bool CKey::SignCompact(const uint256 &hash, std::vector<unsigned char>& vchSig) 
     return true;
 }
 
+bool ComputeTapTweak(const CKey& internal_key, const uint256& merkle_root, CKey& tweaked_key)
+{
+    secp256k1_keypair keypair;
+    if (!secp256k1_keypair_create(secp256k1_context_sign, &keypair, UCharCast(internal_key.begin()))) return false;
+    secp256k1_xonly_pubkey pubkey;
+    if (!secp256k1_keypair_xonly_pub(secp256k1_context_sign, &pubkey, nullptr, &keypair)) {
+        memory_cleanse(&keypair, sizeof(keypair));
+        return false;
+    }
+    unsigned char pubkey_bytes[32];
+    if (!secp256k1_xonly_pubkey_serialize(secp256k1_context_sign, pubkey_bytes, &pubkey)) {
+        memory_cleanse(&keypair, sizeof(keypair));
+        return false;
+    }
+    uint256 tweak = XOnlyPubKey(pubkey_bytes).ComputeTapTweakHash(merkle_root.IsNull() ? nullptr : &merkle_root);
+    if (!secp256k1_keypair_xonly_tweak_add(secp256k1_context_static, &keypair, tweak.data())) {
+        memory_cleanse(&keypair, sizeof(keypair));
+        return false;
+    }
+    unsigned char tweaked_secret_bytes[32];
+    if (!secp256k1_keypair_sec(secp256k1_context_sign, tweaked_secret_bytes, &keypair)) {
+        memory_cleanse(&keypair, sizeof(keypair));
+        return false;
+    }
+    tweaked_key.Set(std::begin(tweaked_secret_bytes), std::end(tweaked_secret_bytes), true);
+    memory_cleanse(&keypair, sizeof(keypair));
+    memory_cleanse(tweaked_secret_bytes, sizeof(tweaked_secret_bytes));
+    return tweaked_key.IsValid();
+}
+
 bool CKey::SignSchnorr(const uint256& hash, Span<unsigned char> sig, const uint256* merkle_root, const uint256& aux) const
 {
     assert(sig.size() == 64);
+    bool ret;
     secp256k1_keypair keypair;
-    if (!secp256k1_keypair_create(secp256k1_context_sign, &keypair, UCharCast(begin()))) return false;
     if (merkle_root) {
-        secp256k1_xonly_pubkey pubkey;
-        if (!secp256k1_keypair_xonly_pub(secp256k1_context_sign, &pubkey, nullptr, &keypair)) return false;
-        unsigned char pubkey_bytes[32];
-        if (!secp256k1_xonly_pubkey_serialize(secp256k1_context_sign, pubkey_bytes, &pubkey)) return false;
-        uint256 tweak = XOnlyPubKey(pubkey_bytes).ComputeTapTweakHash(merkle_root->IsNull() ? nullptr : merkle_root);
-        if (!secp256k1_keypair_xonly_tweak_add(secp256k1_context_static, &keypair, tweak.data())) return false;
+        CKey tweaked_key;
+        if (!ComputeTapTweak(*this, *merkle_root, tweaked_key)) return false;
+        ret = secp256k1_keypair_create(secp256k1_context_sign, &keypair, UCharCast(tweaked_key.begin()));
+        tweaked_key = CKey();
+        if (!ret) return false;
+    } else {
+        if (!secp256k1_keypair_create(secp256k1_context_sign, &keypair, UCharCast(begin()))) return false;
     }
-    bool ret = secp256k1_schnorrsig_sign32(secp256k1_context_sign, sig.data(), hash.data(), &keypair, aux.data());
+    ret = secp256k1_schnorrsig_sign32(secp256k1_context_sign, sig.data(), hash.data(), &keypair, aux.data());
     if (ret) {
         // Additional verification step to prevent using a potentially corrupted signature
         secp256k1_xonly_pubkey pubkey_verify;
