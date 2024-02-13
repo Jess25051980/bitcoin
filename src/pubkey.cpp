@@ -13,6 +13,7 @@
 #include <secp256k1_schnorrsig.h>
 #include <span.h>
 #include <uint256.h>
+#include <util/strencodings.h>
 
 #include <algorithm>
 #include <cassert>
@@ -180,6 +181,22 @@ int ecdsa_signature_parse_der_lax(secp256k1_ecdsa_signature* sig, const unsigned
     }
     return 1;
 }
+
+/** Nothing Up My Sleeve (NUMS) point
+ *
+ *  NUMS_H is a point with an unknown discrete logarithm, constructed by taking the sha256 of 'g'
+ *  after DER encoding (without compression), which happens to be a point on the curve.
+ *
+ *  More precisely, H is derived by running the following script with the sage mathematics software:
+
+    import hashlib
+    F = FiniteField (0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F)
+    G_DER = '0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8'
+    G2 = EllipticCurve ([F (0), F (7)]).lift_x(F(int(hashlib.sha256(bytes.fromhex(G_DER)).hexdigest(),16)))
+    print('%x %x' % G2.xy())
+ */
+static const std::vector<unsigned char> NUMS_H_DATA{ParseHex("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0")};
+const XOnlyPubKey NUMS_H{NUMS_H_DATA};
 
 XOnlyPubKey::XOnlyPubKey(Span<const unsigned char> bytes)
 {
